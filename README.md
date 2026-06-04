@@ -144,6 +144,7 @@ mosquitto_sub -h <broker_ip> -t "robot/telemetry"
 ## Interface graphique (RobotHMI)
 
 Le dossier `RobotHMI/` contient une application de bureau développée en **C# / Avalonia** pour piloter le robot visuellement.
+<img width="1883" height="917" alt="image" src="https://github.com/user-attachments/assets/3ee70173-a066-4686-ba19-c54799d7ee2e" />
 
 ### Prérequis
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
