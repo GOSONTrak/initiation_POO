@@ -1,6 +1,7 @@
 .pio
 .vscode/
 .claude/
+.env
 *.py
 *.html
 logs/

@@ -6,3 +6,4 @@
 RobotHMI/bin/
 RobotHMI/obj/
 esp32/.pio/
+digital-twin/.env

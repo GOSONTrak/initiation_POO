@@ -1,0 +1,33 @@
+services:
+  mosquitto:
+    build: ./mosquitto
+    container_name: mosquitto-mqtt
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
+
+  influxdb:
+    image: influxdb:2
+    container_name: influxdb
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=motdepasse123
+      - DOCKER_INFLUXDB_INIT_ORG=sumo
+      - DOCKER_INFLUXDB_INIT_BUCKET=telemetry
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=t1q9UcDz_3NE8TdjALP62CsBx8hoWS135QYFE3eMH2Wn9xc0b0N34NbtAMoHvddOW9KsopzJ8rna3ysWwIOJbA==
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+
+volumes:
+  mosquitto_data:
+  mosquitto_log:
+  influxdb_data:
