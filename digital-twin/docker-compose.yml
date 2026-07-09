@@ -26,8 +26,18 @@ services:
       - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=t1q9UcDz_3NE8TdjALP62CsBx8hoWS135QYFE3eMH2Wn9xc0b0N34NbtAMoHvddOW9KsopzJ8rna3ysWwIOJbA==
     volumes:
       - influxdb_data:/var/lib/influxdb2
+  grafana:
+    image: grafana/grafana
+    ports: 
+      - "3000:3000"
+    container_name: grafana_bot
+    restart: unless-stopped
+    volumes:
+     - grafana_data:/var/lib/grafana
+
 
 volumes:
   mosquitto_data:
   mosquitto_log:
   influxdb_data:
+  grafana_data :
