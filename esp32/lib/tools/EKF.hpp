@@ -50,7 +50,12 @@ public:
     //  @param dr  distance roue droite en mm (signée)
     void predict(float dl, float dr) {
         const float d      = (dl + dr) * 0.5f;
-        const float dTheta = (dr - dl) / WHEELBASE;
+        // Correction du glissement latéral pendant les virages brusques.
+        // Les roues glissent quand dl et dr sont de signe opposé (pivot sur place).
+        // Calibrer : faire tourner 360° → SLIP_FACTOR = angle_physique_deg / 360.
+        constexpr float SLIP_FACTOR = 1.0f;  // à ajuster après test 360°
+        const bool  sharpTurn = (dl * dr < 0.0f);
+        const float dTheta    = (dr - dl) / WHEELBASE * (sharpTurn ? SLIP_FACTOR : 1.0f);
         const float midTheta = _theta + dTheta * 0.5f;
 
         _thetaPrev = _theta;

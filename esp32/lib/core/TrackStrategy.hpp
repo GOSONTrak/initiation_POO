@@ -20,8 +20,9 @@
 
 class TrackStrategy : public StrategyInterface {
 public:
-    const char* name()  const override { return "Track"; }
-    LedColor    color() const override { return LedColor::MAGENTA; }
+    const char* name()       const override { return "Track"; }
+    LedColor    color()      const override { return LedColor::MAGENTA; }
+    bool        needsLidar() const override { return true; }
 
     RobotConstants::ActionCommand execute(RobotContext& ctx) override {
         using AC = RobotConstants::ActionCommand;

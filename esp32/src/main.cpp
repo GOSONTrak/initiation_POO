@@ -14,7 +14,8 @@
 #include "SeekStrategy.hpp"
 #include "SquareStrategy.hpp"
 #include "TriangleStrategy.hpp"
-
+#include "MPC.hpp"
+#include "QStrategy.hpp"
 #include "SensorManger.hpp"
 #include "IMUsensor.hpp"
 #include "IRSensor.hpp"
@@ -34,6 +35,10 @@ static constexpr const char* MQTT_TOPIC_SUB  = "robot/cmd";
 
 SemaphoreHandle_t g_logMutex  = nullptr;
 TaskHandle_t      g_commTask  = nullptr;
+TaskHandle_t      g_stratTask = nullptr;
+TaskHandle_t      g_encTask   = nullptr;
+TaskHandle_t      g_sensTask  = nullptr;
+TaskHandle_t      g_cmdTask   = nullptr;
 
 DriverLedRGB        led;
 StrategyManager     stratManager;
@@ -44,8 +49,10 @@ CircleDohyoStrategy stratCircle;
 SeekStrategy        stratSeek;
 SquareStrategy      stratSquare;
 TriangleStrategy    stratTriangle;
-
+MPCStrategy         stratMPC;
+QStrategy           stratQ;
 LedTaskParams       ledParams { &led, &stratManager };
+OTATaskParams       otaParams { &led };
 
 SensorManager sensorManager;
 DriverManager driverManager;
@@ -179,6 +186,8 @@ void setup() {
     stratManager.registerStrategy(&stratSeek);
     stratManager.registerStrategy(&stratSquare);
     stratManager.registerStrategy(&stratTriangle);
+    stratManager.registerStrategy(&stratMPC);
+    stratManager.registerStrategy(&stratQ);
     led.init();
     RobotContext::instance().setState(RobotConstants::State::STANDBY);
 
@@ -191,11 +200,11 @@ void setup() {
     xTaskCreatePinnedToCore(taskLed,      "LED",      RTOSConfig::STACK_LED,      &ledParams,     RTOSConfig::PRIO_LED,      nullptr, RTOSConfig::CORE_LED);
     xTaskCreatePinnedToCore(taskSensors,  "SENSORS",  RTOSConfig::STACK_SENSORS,  &sensorManager, RTOSConfig::PRIO_SENSORS,  nullptr, RTOSConfig::CORE_SENSORS);
     xTaskCreatePinnedToCore(taskLidar,    "LIDAR",    RTOSConfig::STACK_LIDAR,    &lidarParams,   RTOSConfig::PRIO_LIDAR,    nullptr, RTOSConfig::CORE_LIDAR);
-    xTaskCreatePinnedToCore(taskStrategy, "STRATEGY", RTOSConfig::STACK_STRATEGY, &stratManager,  RTOSConfig::PRIO_STRATEGY, nullptr, RTOSConfig::CORE_STRATEGY);
-    xTaskCreatePinnedToCore(taskEncoders, "ENCODERS", RTOSConfig::STACK_ENCODER,  &ekfParams,     RTOSConfig::PRIO_ENCODER,  nullptr, RTOSConfig::CORE_ENCODER);
-    xTaskCreatePinnedToCore(taskComm,     "COMM",     RTOSConfig::STACK_COMM,     &comm,          RTOSConfig::PRIO_COMM,     &g_commTask, RTOSConfig::CORE_COMM);
-    xTaskCreatePinnedToCore(taskCommand,  "CMD",      RTOSConfig::STACK_COMMAND,  &cmdParams,     RTOSConfig::PRIO_COMMAND,  nullptr, RTOSConfig::CORE_COMMAND);
-    xTaskCreatePinnedToCore(taskOTA,      "OTA",      RTOSConfig::STACK_OTA,      nullptr,        RTOSConfig::PRIO_OTA,      nullptr, RTOSConfig::CORE_OTA);
+    xTaskCreatePinnedToCore(taskStrategy, "STRATEGY", RTOSConfig::STACK_STRATEGY, &stratManager,  RTOSConfig::PRIO_STRATEGY, &g_stratTask, RTOSConfig::CORE_STRATEGY);
+    xTaskCreatePinnedToCore(taskEncoders, "ENCODERS", RTOSConfig::STACK_ENCODER,  &ekfParams,     RTOSConfig::PRIO_ENCODER,  &g_encTask,   RTOSConfig::CORE_ENCODER);
+    xTaskCreatePinnedToCore(taskComm,     "COMM",     RTOSConfig::STACK_COMM,     &comm,          RTOSConfig::PRIO_COMM,     &g_commTask,  RTOSConfig::CORE_COMM);
+    xTaskCreatePinnedToCore(taskCommand,  "CMD",      RTOSConfig::STACK_COMMAND,  &cmdParams,     RTOSConfig::PRIO_COMMAND,  &g_cmdTask,   RTOSConfig::CORE_COMMAND);
+    xTaskCreatePinnedToCore(taskOTA,      "OTA",      RTOSConfig::STACK_OTA,      &otaParams,     RTOSConfig::PRIO_OTA,      nullptr, RTOSConfig::CORE_OTA);
 
     Serial.println("[main] Toutes les taches demarrees");
 }
@@ -274,5 +283,14 @@ void loop() {
         batt.value.scalar, batt.isValid ? "OK" : "ERR",
         comm.isConnected() ? "connecte" : "deconnecte");
     Serial.printf("RAM disponible : %d octets\n", heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+
+    // ── Stack watermarks (octets libres minimum depuis le démarrage) ──
+    Serial.printf("STACK  STRATEGY=%4u  ENCODER=%4u  CMD=%4u  COMM=%4u  LOOP=%4u\n",
+        g_stratTask ? uxTaskGetStackHighWaterMark(g_stratTask) * sizeof(StackType_t) : 0,
+        g_encTask   ? uxTaskGetStackHighWaterMark(g_encTask)   * sizeof(StackType_t) : 0,
+        g_cmdTask   ? uxTaskGetStackHighWaterMark(g_cmdTask)   * sizeof(StackType_t) : 0,
+        g_commTask  ? uxTaskGetStackHighWaterMark(g_commTask)  * sizeof(StackType_t) : 0,
+        uxTaskGetStackHighWaterMark(nullptr)                   * sizeof(StackType_t));
+
     vTaskDelay(pdMS_TO_TICKS(500));  // 2 Hz pour voir la rotation en temps réel
 }

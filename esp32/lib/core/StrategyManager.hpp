@@ -65,12 +65,14 @@ public:
     }
 
     // ── Accesseurs ────────────────────────────────────────────
-    const char* currentName()  const { return _current ? _current->name()  : "none"; }
-    LedColor    currentColor() const { return _current ? _current->color() : LedColor::YELLOW; }
-    bool        hasStrategy()  const { return _current != nullptr; }
+    const char* currentName()       const { return _current ? _current->name()       : "none"; }
+    LedColor    currentColor()      const { return _current ? _current->color()      : LedColor::YELLOW; }
+    bool        hasStrategy()       const { return _current != nullptr; }
+    bool        currentNeedsLidar() const { return _current ? _current->needsLidar() : false; }
+    bool        currentNeedsLQR()   const { return _current ? _current->needsLQR()   : true;  }
 
 private:
-    static constexpr uint8_t MAX_STRATEGIES = 8;
+    static constexpr uint8_t MAX_STRATEGIES = 10;
     StrategyInterface* _strategies[MAX_STRATEGIES] = {};
     uint8_t            _count      = 0;
     uint8_t            _currentIdx = 0;

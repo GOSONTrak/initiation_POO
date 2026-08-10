@@ -15,8 +15,9 @@
 
 class SeekStrategy : public StrategyInterface {
 public:
-    const char* name()  const override { return "Seek"; }
-    LedColor    color() const override { return LedColor::YELLOW; }
+    const char* name()       const override { return "Seek"; }
+    LedColor    color()      const override { return LedColor::YELLOW; }
+    bool        needsLidar() const override { return true; }
 
     void reset() override {
         _searchPhase    = SearchPhase::WAIT;
@@ -161,6 +162,8 @@ public:
             return AC{0, 0};
         }
 
+     
+     
         return AC{SPEED_SEARCH, -SPEED_SEARCH};
     }
 

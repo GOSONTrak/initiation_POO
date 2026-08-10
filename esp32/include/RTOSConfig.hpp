@@ -20,11 +20,11 @@ namespace RTOSConfig {
     // ── Stack sizes (bytes) ─────────────────────────────────────
     // ESP32 FreeRTOS : minimum recommandé 2048, éviter < 1024
     constexpr uint32_t STACK_SENSORS   = 6144;  // Lidar parser + TOF + ligne
-    constexpr uint32_t STACK_STRATEGY  = 4096;  // Logique sumo
+    constexpr uint32_t STACK_STRATEGY  = 8192;  // Logique sumo (MPC : sinf/cosf × 300 iter)
     constexpr uint32_t STACK_MOTORS    = 3072;  // PWM + queue commandes
     constexpr uint32_t STACK_COMM      = 20480; // WiFi + MQTT (gros stack requis)
     constexpr uint32_t STACK_LOGGER    = 2048;  // Serial.print centralisé
-    constexpr uint32_t STACK_ENCODER   = 2048;  // Lecture compteurs interruption
+    constexpr uint32_t STACK_ENCODER   = 4096;  // Lecture compteurs interruption + LQR float
     constexpr uint32_t STACK_COMMAND   = 3072;  // Parsing commandes + séquences
     constexpr uint32_t STACK_LED       = 1024;  // LED RGB — état robot
     constexpr uint32_t STACK_LIDAR     = 4096;  // DMA UART lidar parser

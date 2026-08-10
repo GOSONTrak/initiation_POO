@@ -11,6 +11,7 @@
 #include "Encoder.hpp"
 #include "EKF.hpp"
 #include "PID.hpp"
+#include "LQR.hpp"
 #include "LidarSensor.hpp"
 #include <ArduinoOTA.h>
 
@@ -26,7 +27,8 @@ struct EKFParams {
     DriverManager*  driver;
     PID*            pidLeft;
     PID*            pidRight;
-    PID*            pidYaw;          // correcteur de cap — erreur = theta_target - theta
+    PID*            pidYaw;          // correcteur de cap (legacy — remplacé par lqrYaw)
+    LQR             lqrYaw;          // LQR cap : u = -(K1·θ_err + K2·ω)
     volatile int    lastPwmLeft  = 0;
     volatile int    lastPwmRight = 0;
     float           headingTarget = 0.0f;   // cap enregistré au début d'un déplacement droit
@@ -242,31 +244,65 @@ void taskLidar(void* pvParameters)
     }
 }
 // ───────────────────────────────────────────────────────────────
-//  taskOTA — 100 Hz, Core 0, Prio 1
-//  Appelle ArduinoOTA.handle() pour permettre le flash WiFi.
-//  Doit tourner sur Core 0 (réseau WiFi géré par ESP-IDF sur Core 0).
+//  Paramètres de taskOTA
 // ───────────────────────────────────────────────────────────────
+struct OTATaskParams {
+    DriverLedRGB* led;
+};
+
+// ───────────────────────────────────────────────────────────────
+//  taskOTA — Core 0, Prio 4
+//  Attend la connexion WiFi, configure ArduinoOTA puis gère les
+//  requêtes de mise à jour en boucle.
+//
+//  Sécurité  : mot de passe "sumo2026" (à renseigner dans PlatformIO).
+//  Sécurité  : moteurs stoppés à l'entrée du flash (onStart).
+//  Feedback  : LED ORANGE pendant le flash + progression Serial.
+// ───────────────────────────────────────────────────────────────
+static volatile bool _otaFlashing = false;
+
 void taskOTA(void* pvParameters)
 {
+    OTATaskParams* p = static_cast<OTATaskParams*>(pvParameters);
+
     while (WiFi.status() != WL_CONNECTED) {
         vTaskDelay(pdMS_TO_TICKS(500));
     }
+
     ArduinoOTA.setHostname("mini-sumo");
+    ArduinoOTA.setPassword("sumo2026");
 
     ArduinoOTA.onStart([]() {
+        _otaFlashing = true;
+        RobotContext::instance().setMotorSpeeds({});  // sécurité mécanique
         if (g_commTask) vTaskSuspend(g_commTask);
+        Serial.println("[OTA] Mise a jour en cours...");
     });
+
+    ArduinoOTA.onProgress([](unsigned int done, unsigned int total) {
+        Serial.printf("[OTA] %3u%%\r", done * 100u / total);
+    });
+
     ArduinoOTA.onEnd([]() {
+        _otaFlashing = false;
+        Serial.println("\n[OTA] Termine — redemarrage");
         if (g_commTask) vTaskResume(g_commTask);
     });
-    ArduinoOTA.onError([](ota_error_t) {
+
+    ArduinoOTA.onError([](ota_error_t err) {
+        _otaFlashing = false;
+        Serial.printf("[OTA] Erreur [%u]\n", err);
         if (g_commTask) vTaskResume(g_commTask);
     });
 
     ArduinoOTA.begin();
+    LOG("[OTA] Pret — hostname: mini-sumo  mot de passe: sumo2026");
 
     for (;;) {
         ArduinoOTA.handle();
+        // LED ORANGE pendant le flash — taskLed (Prio 0) ne concurrence pas
+        if (p && p->led)
+            p->led->setColor(_otaFlashing ? LedColor::ORANGE : LedColor::OFF);
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
@@ -338,7 +374,8 @@ void taskStrategy(void* pvParameters)
 
         // ── Exécution stratégie (seulement hors STANDBY) ─────
         if (state != RobotConstants::State::STANDBY) {
-            ctx.setLidarEnabled(true);   // défaut ON — la stratégie peut écraser à false
+            ctx.setLidarEnabled(manager->currentNeedsLidar());
+            ctx.setLqrEnabled(manager->currentNeedsLQR());
             RobotConstants::ActionCommand cmd = manager->executeStrategy(ctx);
             ctx.setMotorSpeeds(cmd);
         } else {
@@ -534,6 +571,25 @@ void taskEncoders(void* pvParameters)
     TickType_t lastWake = xTaskGetTickCount();
     uint32_t   lastMs   = millis();
 
+    // Calibration du bias gyro — robot immobile au démarrage (200 cycles × 5 ms = 1 s)
+    float gxBiasDps = 0.0f;
+    {
+        constexpr int N_CAL = 200;
+        int nValid = 0;
+        for (int i = 0; i < N_CAL; i++) {
+            vTaskDelay(pdMS_TO_TICKS(5));
+            SensorData imu = RobotContext::instance().getIMUData();
+            if (imu.isValid) {
+                gxBiasDps += imu.value.imu.gx;
+                nValid++;
+            }
+        }
+        if (nValid > 0) gxBiasDps /= (float)nValid;
+        LOGF("[EKF] gx_bias calibre: %.2f deg/s (%d samples)\n", gxBiasDps, nValid);
+    }
+    lastWake = xTaskGetTickCount();   // réinitialise après la calibration
+    lastMs   = millis();
+
     for (;;)
     {
         const float deltaMs = RTOSConfig::PERIOD_ENCODER * portTICK_PERIOD_MS;
@@ -562,13 +618,13 @@ void taskEncoders(void* pvParameters)
 
         // 4. Correction EKF gyroscope
         SensorData imuData = ctx.getIMUData();
+        float gxRad = 0.0f;   // taux de lacet mesuré (rad/s) — utilisé aussi par LQR
         if (imuData.isValid) {
             uint32_t now = millis();
             float dtSec  = (now - lastMs) / 1000.0f;
             lastMs       = now;
-            float gxRad = imuData.value.imu.gx * DEG_TO_RAD;
-            // Zone morte ±1 deg/s : biais résiduel MPU6050 après calibration < 0.1 deg/s
-            static constexpr float GYRO_EKF_DEADBAND_RAD = 0.2f * (float)DEG_TO_RAD;  // calibré: bruit résiduel=0.045°/s → 4σ=0.18°/s
+            static constexpr float GYRO_EKF_DEADBAND_RAD = 1.0f * (float)DEG_TO_RAD;  // ±1°/s — bruit résiduel post-calibration
+            gxRad = (imuData.value.imu.gx - gxBiasDps) * DEG_TO_RAD;
             if (fabsf(gxRad) > GYRO_EKF_DEADBAND_RAD) {
                 p->ekf->updateIMU(gxRad, dtSec);
             }
@@ -599,6 +655,46 @@ void taskEncoders(void* pvParameters)
             float targetL = (cmd.leftSpeed  / 255.0f) * SPEED_MAX_RPM_L;
             float targetR = (cmd.rightSpeed / 255.0f) * SPEED_MAX_RPM_L;
 
+            // LQR cap — modifie les consignes RPM AVANT les PIDs
+            // Désactivé si la stratégie courante ne nécessite pas de tenue de cap
+            // (ex: Q-learning qui change de direction trop fréquemment).
+            bool lqrOn = ctx.isLqrEnabled();
+            if (lqrOn && cmd.leftSpeed == cmd.rightSpeed && imuData.isValid) {
+                EKF::Pose pose = p->ekf->getPose();
+                if (!p->headingLocked) {
+                    float ideal;
+                    if (ctx.consumeIdealHeading(ideal))
+                        p->headingTarget = ideal;
+                    else
+                        p->headingTarget = pose.theta;
+                    p->headingLocked = true;
+                    p->lqrYaw.reset();
+                }
+                float thetaErr = p->headingTarget - pose.theta;
+                while (thetaErr >  (float)M_PI) thetaErr -= 2.0f * (float)M_PI;
+                while (thetaErr < -(float)M_PI) thetaErr += 2.0f * (float)M_PI;
+
+                // u (PWM) → RPM : les PIDs enforceront la correction
+                // EKF : dTheta = (dr - dl) / wb → gauche plus vite = CW (theta diminue)
+                // Donc pour corriger CCW (theta↑) : gauche↑, droite↓ → targetL+=, targetR-=
+                static constexpr float RPM_PER_PWM = SPEED_MAX_RPM_L / 255.0f;
+                float corrRPM = p->lqrYaw.compute(thetaErr, gxRad) * RPM_PER_PWM;
+                targetL += corrRPM;
+                targetR -= corrRPM;
+            } else if (lqrOn && imuData.isValid) {
+                // LQR courbure — maintient ω_ref pendant un arc (L ≠ R)
+                p->headingLocked = false;
+                static constexpr float B_RAD = 350.0f / (255.0f * 92.66f); // (rad/s)/PWM
+                float omegaRef = (cmd.rightSpeed - cmd.leftSpeed) * B_RAD;
+                static constexpr float RPM_PER_PWM_C = SPEED_MAX_RPM_L / 255.0f;
+                float corrRPM = p->lqrYaw.computeCurve(omegaRef, gxRad) * RPM_PER_PWM_C;
+                targetL += corrRPM;
+                targetR -= corrRPM;
+            } else {
+                p->lqrYaw.reset();
+                p->headingLocked = false;
+            }
+
             p->pidLeft->setSetpoint(targetL);
             p->pidRight->setSetpoint(targetR);
 
@@ -609,40 +705,6 @@ void taskEncoders(void* pvParameters)
 
             int pwmL = ffL + (int)p->pidLeft->compute(left.rpm);
             int pwmR = ffR + (int)p->pidRight->compute(right.rpm);
-
-            // Correction de cap absolu — uniquement en ligne droite (L == R, même signe)
-            // Enregistre theta au premier cycle, puis corrige l'écart theta_target - theta.
-            // Plus efficace que gx sur longue distance : gx corrige la rotation du moment,
-            // theta corrige la dérive accumulée.
-            if (cmd.leftSpeed == cmd.rightSpeed && imuData.isValid) {
-                EKF::Pose pose = p->ekf->getPose();
-                if (!p->headingLocked) {
-                    float ideal;
-                    if (ctx.consumeIdealHeading(ideal))
-                        p->headingTarget = ideal;   // cap idéal fourni par la stratégie
-                    else
-                        p->headingTarget = pose.theta;
-                    p->headingLocked = true;
-                    p->pidYaw->reset();
-                }
-                float thetaErr = p->headingTarget - pose.theta;
-                // Normalise l'erreur dans [-π, π]
-                while (thetaErr >  (float)M_PI) thetaErr -= 2.0f * (float)M_PI;
-                while (thetaErr < -(float)M_PI) thetaErr += 2.0f * (float)M_PI;
-                // Convertit en degrés pour le PID (gains calibrés en °)
-                float thetaErrDeg = thetaErr * (180.0f / (float)M_PI);
-                static constexpr float HEADING_DEADBAND = 0.5f;  // ±0.5° : ignore le bruit EKF
-                if (fabsf(thetaErrDeg) > HEADING_DEADBAND) {
-                    float corr = p->pidYaw->compute(-thetaErrDeg);  // négatif : erreur positive → corr positive → pwmR monte
-                    pwmL -= (int)corr;
-                    pwmR += (int)corr;
-                } else {
-                    p->pidYaw->reset();
-                }
-            } else {
-                p->pidYaw->reset();
-                p->headingLocked = false;
-            }
 
             p->lastPwmLeft  = constrain(pwmL, -255, 255);
             p->lastPwmRight = constrain(pwmR, -255, 255);

@@ -25,8 +25,9 @@
 class AdamantineStrategy : public StrategyInterface {
 public:
 
-    const char* name()  const override { return "Adamantine"; }
-    LedColor    color() const override { return LedColor::CYAN; }
+    const char* name()       const override { return "Adamantine"; }
+    LedColor    color()      const override { return LedColor::CYAN; }
+    bool        needsLidar() const override { return true; }
 
     RobotConstants::ActionCommand execute(RobotContext& ctx) override {
 

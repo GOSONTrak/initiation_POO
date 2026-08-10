@@ -38,4 +38,14 @@ public:
 
     // ── Couleur LED associée ──────────────────────────────────
     virtual LedColor color() const = 0;
+
+    // ── Lidar requis ? ────────────────────────────────────────
+    //  false par défaut — stratégies géométriques (Square, Circle…)
+    //  Override avec return true si la stratégie lit getLidarData()
+    virtual bool needsLidar() const { return false; }
+
+    // ── LQR cap requis ? ──────────────────────────────────────
+    //  true par défaut — désactiver pour les stratégies qui changent
+    //  de direction trop fréquemment (Q-learning, etc.)
+    virtual bool needsLQR()   const { return true; }
 };

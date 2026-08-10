@@ -67,6 +67,14 @@ public:
         _lock(); bool en = _lidarEnabled; _unlock(); return en;
     }
 
+    void setLqrEnabled(bool en) {
+        _lock(); _lqrEnabled = en; _unlock();
+    }
+
+    bool isLqrEnabled() {
+        _lock(); bool en = _lqrEnabled; _unlock(); return en;
+    }
+
     // Vrai dès que la calibration automatique de la zone morte est terminée.
     void setLidarCalibDone(bool done) {
         _lock(); _lidarCalibDone = done; _unlock();
@@ -207,6 +215,7 @@ private:
     RobotConstants::State         _state       = RobotConstants::State::STANDBY;
     SensorData                    _lidarData;
     bool                          _lidarEnabled    = false;
+    bool                          _lqrEnabled      = true;
     bool                          _lidarCalibDone  = false;
     SensorData                    _lineData[9];     // indexé par _posToIndex
     SensorData                    _tofData[9];      // indexé par _posToIndex
