@@ -27,7 +27,7 @@
 
 static constexpr const char* WIFI_SSID       = "S25Ultra";
 static constexpr const char* WIFI_PASS       = "sylvain123";
-static constexpr const char* MQTT_BROKER_IP  = "10.200.33.191";
+static constexpr const char* MQTT_BROKER_IP  = " 10.163.211.191";
 static constexpr uint16_t    MQTT_PORT       = 1883;
 static constexpr const char* MQTT_TOPIC_PUB  = "robot/telemetry";
 static constexpr const char* MQTT_TOPIC_SUB  = "robot/cmd";
