@@ -16,7 +16,7 @@ if load_dotenv(Path(__file__).parent / ".env"):
     INFLUXDB_BUCKET = os.getenv("INFLUXDB_BUCKET")
     INFLUXDB_TOKEN = os.getenv("INFLUXDB_TOKEN")
 
-    BROKER = '10.101.231.191'
+    BROKER = '10.200.33.191'
     PORT   = 1883
     TOPIC = 'robot/telemetry'
     last_tag = ''
